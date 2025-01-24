@@ -1,88 +1,132 @@
-def test_get_product(client):
-    """It should Get a Product by ID"""
-    product = ProductFactory()
-    product.id = None
-    product.create()
-    response = client.get(f'/products/{product.id}')
-    assert response.status_code == 200
-    data = response.get_json()
-    assert data['id'] == product.id
-    assert data['name'] == product.name
-    assert data['description'] == product.description
-    assert data['price'] == product.price
+"""
+Counter API Service Test Suite
 
-def test_update_product(client):
-    """It should Update a Product by ID"""
-    product = ProductFactory()
-    product.id = None
-    product.create()
-    new_data = create_fake_product()
-    response = client.put(f'/products/{product.id}', json=new_data)
-    assert response.status_code == 200
-    updated_product = Product.find_by_id(product.id)
-    assert updated_product.name == new_data['name']
-    assert updated_product.description == new_data['description']
-    assert updated_product.price == new_data['price']
+Test cases can be run with the following:
+  nosetests -v --with-spec --spec-color
+  coverage report -m
+"""
+from unittest import TestCase
+from service.common import status  # HTTP Status Codes
+from service.routes import app, reset_counters
 
-def test_delete_product(client):
-    """It should Delete a Product by ID"""
-    product = ProductFactory()
-    product.id = None
-    product.create()
-    response = client.delete(f'/products/{product.id}')
-    assert response.status_code == 204
-    assert Product.find_by_id(product.id) is None
 
-def test_get_products(client):
-    """It should List all Products"""
-    products = [ProductFactory() for _ in range(10)]
-    for product in products:
-        product.id = None
-        product.create()
-    response = client.get('/products')
-    assert response.status_code == 200
-    data = response.get_json()
-    assert len(data) == 10
-    for product, product_data in zip(products, data):
-        assert product_data['id'] == product.id
-        assert product_data['name'] == product.name
-        assert product_data['description'] == product.description
-        assert product_data['price'] == product.price
+######################################################################
+#  T E S T   C A S E S
+######################################################################
+class CounterTest(TestCase):
+    """ REST API Server Tests """
 
-def test_query_by_name(client):
-    """It should List Products by Name"""
-    products = [ProductFactory() for _ in range(10)]
-    for product in products:
-        product.id = None
-        product.create()
-    response = client.get('/products?name=Hat')
-    assert response.status_code == 200
-    data = response.get_json()
-    assert len(data) == 1
-    assert data[0]['name'] == 'Hat'
+    @classmethod
+    def setUpClass(cls):
+        """ This runs once before the entire test suite """
+        app.testing = True
 
-def test_query_by_category(client):
-    """It should List Products by Category"""
-    products = [ProductFactory() for _ in range(10)]
-    for product in products:
-        product.id = None
-        product.create()
-    response = client.get('/products?category=Electronics')
-    assert response.status_code == 200
-    data = response.get_json()
-    assert len(data) == 3
-    for product_data in data:
-        assert product_data['category'] == 'Electronics'
+    @classmethod
+    def tearDownClass(cls):
+        """ This runs once after the entire test suite """
+        pass
 
-def test_query_by_availability(client):
-    """It should List Products by Availability"""
-    products = [ProductFactory() for _ in range(10)]
-    for product in products:
-        product.id = None
-        product.create()
-    response = client.get('/products?availability=true')
-    assert response.status_code == 200
-    data = response.get_json()
-    assert len(data) == 5
-    for product_data in data:
-        assert product_data['availability'] == True
+    def setUp(self):
+        """ This runs before each test """
+        reset_counters()
+        self.app = app.test_client()
+
+    def tearDown(self):
+        """ This runs after each test """
+        pass
+
+######################################################################
+#  T E S T   C A S E S
+######################################################################
+
+    def test_index(self):
+        """ It should call the index call """
+        resp = self.app.get("/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    def test_health(self):
+        """ It should be healthy """
+        resp = self.app.get("/health")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    def test_create_counters(self):
+        """ It should Create a counter """
+        name = "foo"
+        resp = self.app.post(f"/counters/{name}")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        data = resp.get_json()
+        self.assertEqual(data["name"], name)
+        self.assertEqual(data["counter"], 0)
+
+    def test_create_duplicate_counter(self):
+        """ It should not Create a duplicate counter """
+        name = "foo"
+        resp = self.app.post(f"/counters/{name}")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        data = resp.get_json()
+        self.assertEqual(data["name"], name)
+        self.assertEqual(data["counter"], 0)
+        resp = self.app.post(f"/counters/{name}")
+        self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
+
+    def test_list_counters(self):
+        """ It should List counters """
+        resp = self.app.get("/counters")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        data = resp.get_json()
+        self.assertEqual(len(data), 0)
+        # create a counter and name sure it appears in the list
+        self.app.post("/counters/foo")
+        resp = self.app.get("/counters")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        data = resp.get_json()
+        self.assertEqual(len(data), 1)
+
+    def test_read_counters(self):
+        """ It should Read a counter """
+        name = "foo"
+        self.app.post(f"/counters/{name}")
+        resp = self.app.get(f"/counters/{name}")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        data = resp.get_json()
+        self.assertEqual(data["name"], name)
+        self.assertEqual(data["counter"], 0)
+
+    def test_update_counters(self):
+        """ It should Update a counter """
+        name = "foo"
+        resp = self.app.post(f"/counters/{name}")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        resp = self.app.get(f"/counters/{name}")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        data = resp.get_json()
+        print(data)
+        self.assertEqual(data["name"], name)
+        self.assertEqual(data["counter"], 0)
+        # now update it
+        resp = self.app.put(f"/counters/{name}")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        data = resp.get_json()
+        self.assertEqual(data["name"], name)
+        self.assertEqual(data["counter"], 1)
+
+    def test_update_missing_counters(self):
+        """ It should not Update a missing counter """
+        name = "foo"
+        resp = self.app.put(f"/counters/{name}")
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_delete_counters(self):
+        """ It should Delete a counter """
+        name = "foo"
+        # Create a counter
+        resp = self.app.post(f"/counters/{name}")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        # Delete it twice should return the same
+        resp = self.app.delete(f"/counters/{name}")
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        resp = self.app.delete(f"/counters/{name}")
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        # Gte it to make sure it's really gone
+        resp = self.app.get(f"/counters/{name}")
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)

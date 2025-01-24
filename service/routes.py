@@ -1,59 +1,122 @@
-@app.route('/products/<int:product_id>', methods=['GET'])
-def get_product(product_id):
-    """Retrieve a single Product"""
-    app.logger.info("Request for product with id [%s]", product_id)
-    product = Product.find(product_id)
-    if not product:
-        abort(status.HTTP_404_NOT_FOUND, f"Product with id '{product_id}' was not found.")
-    app.logger.info("Returning product: %s", product.name)
-    return product.serialize(), status.HTTP_200_OK
+"""
+Controller for routes
+"""
+from flask import jsonify, url_for, abort
+from service import app
+from service.common import status
 
-@app.route('/products/<int:product_id>', methods=['PUT'])
-def update_product(product_id):
-    """Update a Product"""
-    app.logger.info("Request to update product with id [%s]", product_id)
-    check_content_type("application/json")
-    product = Product.find(product_id)
-    if not product:
-        abort(status.HTTP_404_NOT_FOUND, f"Product with id '{product_id}' was not found.")
-    data = request.get_json()
-    app.logger.info(data)
-    product.deserialize(data)
-    product.id = product_id
-    product.update()
-    return make_response(jsonify(product.serialize()), status.HTTP_200_OK)
+COUNTER = {}
 
-@app.route('/products/<int:product_id>', methods=['DELETE'])
-def delete_product(product_id):
-    """Delete a Product"""
-    app.logger.info("Request to delete product with id [%s]", product_id)
-    product = Product.find(product_id)
-    if product:
-        product.delete()
-    return '', status.HTTP_204_NO_CONTENT
 
-@app.route('/products', methods=['GET'])
-def list_products():
-    """Returns a list of Products"""
-    app.logger.info("Request to list Products...")
-    products = []
-    name = request.args.get("name")
-    category = request.args.get("category")
-    available = request.args.get("available")
-    if name:
-        app.logger.info("Find by name: %s", name)
-        products = Product.find_by_name(name)
-    elif category:
-        app.logger.info("Find by category: %s", category)
-        category_value = getattr(Category, category.upper(), None)
-        products = Product.find_by_category(category_value)
-    elif available:
-        app.logger.info("Find by availability: %s", available)
-        available_value = available.lower() in ["true", "yes", "1"]
-        products = Product.find_by_availability(available_value)
-    else:
-        app.logger.info("Find all")
-        products = Product.all()
-    results = [product.serialize() for product in products]
-    app.logger.info("[%s] Products returned", len(results))
-    return jsonify(results), status.HTTP_200_OK
+############################################################
+# Health Endpoint
+############################################################
+@app.route("/health")
+def health():
+    """Health Status"""
+    return jsonify(dict(status="OK")), status.HTTP_200_OK
+
+
+############################################################
+# Index page
+############################################################
+@app.route("/")
+def index():
+    """Returns information abut the service"""
+    app.logger.info("Request for Base URL")
+    return jsonify(
+        status=status.HTTP_200_OK,
+        message="Hit Counter Service",
+        version="1.0.0",
+        url=url_for("list_counters", _external=True),
+    )
+
+
+############################################################
+# List counters
+############################################################
+@app.route("/counters", methods=["GET"])
+def list_counters():
+    """Lists all counters"""
+    app.logger.info("Request to list all counters...")
+
+    counters = [dict(name=count[0], counter=count[1]) for count in COUNTER.items()]
+
+    return jsonify(counters)
+
+
+############################################################
+# Create counters
+############################################################
+@app.route("/counters/<name>", methods=["POST"])
+def create_counters(name):
+    """Creates a new counter"""
+    app.logger.info("Request to Create counter: %s...", name)
+
+    if name in COUNTER:
+        return abort(status.HTTP_409_CONFLICT, f"Counter {name} already exists")
+
+    COUNTER[name] = 0
+
+    location_url = url_for("read_counters", name=name, _external=True)
+    return (
+        jsonify(name=name, counter=0),
+        status.HTTP_201_CREATED,
+        {"Location": location_url},
+    )
+
+
+############################################################
+# Read counters
+############################################################
+@app.route("/counters/<name>", methods=["GET"])
+def read_counters(name):
+    """Reads a single counter"""
+    app.logger.info("Request to Read counter: %s...", name)
+
+    if name not in COUNTER:
+        return abort(status.HTTP_404_NOT_FOUND, f"Counter {name} does not exist")
+
+    counter = COUNTER[name]
+    return jsonify(name=name, counter=counter)
+
+
+############################################################
+# Update counters
+############################################################
+@app.route("/counters/<name>", methods=["PUT"])
+def update_counters(name):
+    """Updates a counter"""
+    app.logger.info("Request to Update counter: %s...", name)
+
+    if name not in COUNTER:
+        return abort(status.HTTP_404_NOT_FOUND, f"Counter {name} does not exist")
+
+    COUNTER[name] += 1
+
+    counter = COUNTER[name]
+    return jsonify(name=name, counter=counter)
+
+
+############################################################
+# Delete counters
+############################################################
+@app.route("/counters/<name>", methods=["DELETE"])
+def delete_counters(name):
+    """Deletes a counter"""
+    app.logger.info("Request to Delete counter: %s...", name)
+
+    if name in COUNTER:
+        COUNTER.pop(name)
+
+    return "", status.HTTP_204_NO_CONTENT
+
+
+############################################################
+# Utility for testing
+############################################################
+def reset_counters():
+    """Removes all counters while testing"""
+    global COUNTER  # pylint: disable=global-statement
+    if app.testing:
+        COUNTER = {}
